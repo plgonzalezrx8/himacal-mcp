@@ -1,0 +1,7 @@
+# Project artwork
+
+[himacal-banner.png](himacal-banner.png) is the README banner, created with the built-in image generation tool. Its background is opaque so the wordmark remains readable in both light and dark GitHub themes.
+
+Generation prompt:
+
+> Use case: logo-brand. Create one finished wide landscape project banner for the GitHub README of Himacal-MCP, an open-source project connecting email and calendars through one MCP server. Aspect ratio about 3:1, with the whole composition inside safe margins. Make it colorful, eye-catching, polished and instantly legible. Deep midnight navy backdrop with a subtle textured tonal gradient, crisp glacier-cyan and fresh mint forms, small warm coral-orange accents, and warm off-white typography. On the left, one distinctive integrated emblem: an angular mountain peak formed from the fold of an envelope, with two restrained calendar binding rings and a tiny calendar grid cleverly built into the envelope body. It should read as a single intentional brand mark, not a cluster of stock icons. On the right, large exact text 'Himacal-MCP' in excellent bold geometric sans-serif type with refined spacing. Bold modern vector-like illustration, exceptionally clean edges, balanced negative space, visually confident, a little joyful. A few subtle geometric accent shapes may connect the composition. No other words or taglines, no robots, no mockup objects, no watermark, no fake badges, no screenshots. This is the final banner artwork, not a presentation of alternatives.

@@ -1,5 +1,7 @@
 # Himacal-MCP
 
+![Himacal-MCP banner with a mountain, envelope and calendar emblem](assets/himacal-banner.png)
+
 Himacal-MCP gives a trusted MCP client access to configured email and CalDAV accounts over Streamable HTTP. It runs as a Docker service, using the Himalaya CLI for email and a CalDAV client for calendars.
 
 **One bearer token grants access to every configured account.** Anyone with that token can read and change account data and send email. Use it only with clients you trust.
@@ -12,13 +14,15 @@ Himacal-MCP gives a trusted MCP client access to configured email and CalDAV acc
 
 ## Requirements
 
-- Git, Docker Engine and Docker Compose. The supplied image targets **Linux x86-64** (`linux/amd64`); other host architectures need compatible emulation.
+- A Linux host with Git, OpenSSL, Docker Engine and Docker Compose. The supplied image targets **Linux x86-64** (`linux/amd64`); other host architectures need compatible emulation.
 - An MCP client that supports Streamable HTTP and a custom `Authorization` header.
 - Provider connection details and credentials for at least one email or CalDAV account. An app-specific password may be required.
 
 Python is not needed for normal Docker use. Building the image downloads the pinned Himalaya source and dependencies and can take some time.
 
 ## Setup
+
+The steps below use a Linux shell. An optional PowerShell alternative for copying the configuration and generating the token follows the connection instructions.
 
 ### 1. Get the project
 
@@ -27,13 +31,13 @@ git clone https://github.com/plgonzalezrx8/himacal-mcp.git
 cd himacal-mcp
 ```
 
-Copy the example configuration using your shell:
+Copy the example configuration:
 
 ```sh
 cp himacal.example.toml himacal.toml
 ```
 
-On PowerShell, use `Copy-Item himacal.example.toml himacal.toml` instead. Edit `himacal.toml` for your provider. The example has a named `personal` account with independently optional `email` and `caldav` sections; keep at least one. Use your provider's actual mailbox names, server addresses and usernames. Email settings use the native [Himalaya 2.2.1 configuration](https://github.com/pimalaya/himalaya/blob/v2.2.1/config.sample.toml); CalDAV uses `url`, `username`, `password_file` and an IANA `timezone`.
+Edit `himacal.toml` for your provider. The example has a named `personal` account with independently optional `email` and `caldav` sections; keep at least one. Use your provider's actual mailbox names, server addresses and usernames. Email settings use the native [Himalaya 2.2.1 configuration](https://github.com/pimalaya/himalaya/blob/v2.2.1/config.sample.toml); CalDAV uses `url`, `username`, `password_file` and an IANA `timezone`.
 
 The example reads the same provider secret for IMAP, SMTP and CalDAV. Do not put passwords in TOML. Treat the configuration as trusted: Himalaya password commands are executed by the CLI. The example commands only read the mounted secret file.
 
@@ -41,34 +45,10 @@ The example reads the same provider secret for IMAP, SMTP and CalDAV. Do not put
 
 Create `.secrets/mcp_password` as a new, independent high-entropy token. It must be a single line of at least 32 printable ASCII characters without spaces. These commands write a random token directly to a new file without displaying it and refuse to overwrite an existing file.
 
-<details>
-<summary>Linux or macOS shell (requires OpenSSL)</summary>
-
 ```sh
 mkdir -p .secrets
 (umask 077; set -o noclobber; openssl rand -hex 32 > .secrets/mcp_password)
 ```
-
-</details>
-
-<details>
-<summary>PowerShell</summary>
-
-```powershell
-New-Item -ItemType Directory -Force .secrets | Out-Null
-$bytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
-$token = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
-$path = Join-Path (Get-Location).Path '.secrets/mcp_password'
-$file = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
-try {
-    $encoded = [Text.Encoding]::ASCII.GetBytes($token)
-    $file.Write($encoded, 0, $encoded.Length)
-} finally { $file.Dispose() }
-```
-
-</details>
 
 Create `.secrets/provider_password` manually with your provider password or app-specific password as its only line. Use a private editor that does not leave unprotected backup files; do not enter the credential in a shell command or commit either file. `himacal.toml`, `.secrets/` and `.env` are ignored by Git, but remain sensitive on your machine.
 
@@ -104,6 +84,30 @@ To use another host port, set `HIMACAL_HOST_PORT` and `HIMACAL_PUBLIC_URL` toget
 ```sh
 docker compose up -d --force-recreate
 ```
+
+<details>
+<summary>Optional: PowerShell setup</summary>
+
+After cloning the repository, use these commands in its directory instead of the Linux configuration-copy and token-generation commands above. The token file is created without displaying the token or overwriting an existing file.
+
+```powershell
+Copy-Item himacal.example.toml himacal.toml
+New-Item -ItemType Directory -Force .secrets | Out-Null
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+$token = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
+$path = Join-Path (Get-Location).Path '.secrets/mcp_password'
+$file = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+try {
+    $encoded = [Text.Encoding]::ASCII.GetBytes($token)
+    $file.Write($encoded, 0, $encoded.Length)
+} finally { $file.Dispose() }
+```
+
+Edit the configuration, create the provider secret manually, and restrict both secrets as described above. Docker Desktop's host-to-container ownership mapping differs from native Linux; use equivalent restricted access and verify UID 10001 can read the secrets. Then start the service and configure your MCP client as above.
+
+</details>
 
 ### More accounts or separate credentials
 
