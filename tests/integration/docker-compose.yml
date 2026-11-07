@@ -1,0 +1,66 @@
+services:
+  himacal:
+    image: himacal-mcp-acceptance:${HIMACAL_TEST_TAG}
+    environment:
+      HIMACAL_PUBLIC_URL: https://mcp.example.test
+    volumes:
+      - ${HIMACAL_TEST_DIR}/himacal.toml:/etc/himacal/config.toml:ro
+    secrets:
+      - mcp_password
+      - provider_password
+      - beta_password
+    restart: "no"
+    depends_on:
+      - greenmail
+      - smtp-fixture
+      - radicale
+
+  greenmail:
+    image: greenmail/standalone:2.1.9
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.users=alpha:alpha-fixture-password@localhost,beta:beta-fixture-password@localhost
+
+  radicale:
+    build:
+      context: .
+      dockerfile: tests/integration/radicale.Dockerfile
+
+  smtp-fixture:
+    image: python:3.13-slim
+    user: "10001:10001"
+    read_only: true
+    volumes:
+      - ./tests/integration/smtp_greeting.py:/smtp_greeting.py:ro
+    command: ["python", "/smtp_greeting.py"]
+    depends_on:
+      - greenmail
+
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: [test]
+    environment:
+      HIMACAL_CONFIG: /etc/himacal/config.toml
+      HIMACAL_MCP_PASSWORD_FILE: /run/secrets/mcp_password
+      HIMACAL_PUBLIC_URL: https://mcp.example.test
+      HIMACAL_INTEGRATION: "1"
+      HIMACAL_TEST_URL: http://himacal:8000
+    volumes:
+      - ${HIMACAL_TEST_DIR}/himacal.toml:/etc/himacal/config.toml:ro
+    secrets:
+      - mcp_password
+      - provider_password
+      - beta_password
+    command: ["pytest", "-q", "--tb=short"]
+
+secrets:
+  mcp_password:
+    file: ${HIMACAL_TEST_DIR}/mcp_password
+  provider_password:
+    file: ${HIMACAL_TEST_DIR}/alpha_password
+  beta_password:
+    file: ${HIMACAL_TEST_DIR}/beta_password

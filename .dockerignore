@@ -1,0 +1,14 @@
+.git
+.venv
+.secrets
+.runtime
+*.log
+.env
+himacal.toml
+docs
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.coverage
+dist

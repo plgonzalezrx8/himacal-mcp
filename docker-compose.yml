@@ -1,0 +1,23 @@
+services:
+  himacal:
+    build: .
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:${HIMACAL_HOST_PORT:-8000}:8000"
+    environment:
+      HIMACAL_PUBLIC_URL: ${HIMACAL_PUBLIC_URL:-http://localhost:8000}
+    volumes:
+      - ./himacal.toml:/etc/himacal/config.toml:ro
+    secrets:
+      - mcp_password
+      - provider_password
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    restart: unless-stopped
+
+secrets:
+  mcp_password:
+    file: ./.secrets/mcp_password
+  provider_password:
+    file: ./.secrets/provider_password

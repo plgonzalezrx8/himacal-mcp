@@ -1,0 +1,19 @@
+# Replace all example values with your provider's settings.
+# Email and CalDAV sections are independently optional; retain at least one.
+[accounts.personal.email]
+email = "you@example.com"
+display-name = "Your Name"
+mailbox.alias.inbox = "INBOX"
+mailbox.alias.trash = "Trash"
+imap.server = "imaps://imap.example.com:993"
+imap.sasl.plain.username = "you@example.com"
+imap.sasl.plain.password.command = "cat /run/secrets/provider_password"
+smtp.server = "smtps://smtp.example.com:465"
+smtp.sasl.plain.username = "you@example.com"
+smtp.sasl.plain.password.command = "cat /run/secrets/provider_password"
+
+[accounts.personal.caldav]
+url = "https://calendar.example.com/"
+username = "you@example.com"
+password_file = "/run/secrets/provider_password"
+timezone = "America/New_York"

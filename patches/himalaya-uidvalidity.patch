@@ -1,0 +1,216 @@
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -5,6 +5,7 @@
+ 
+ use std::{
+     io::{IsTerminal, stdin},
++    num::NonZeroU32,
+     path::{Path, PathBuf},
+ };
+ 
+@@ -91,6 +92,9 @@
+     /// the account has no such block, or the command no such implementation.
+     #[arg(short, long, global = true, default_value_t)]
+     pub backend: Backend,
++    /// Require this UIDVALIDITY when selecting an IMAP mailbox.
++    #[arg(long, global = true)]
++    pub expected_uid_validity: Option<NonZeroU32>,
+     #[command(flatten)]
+     pub json: JsonFlag,
+     #[command(flatten)]
+@@ -265,6 +269,7 @@
+         config_paths: &[PathBuf],
+         account_name: Option<&str>,
+         backend: Backend,
++        expected_uid_validity: Option<NonZeroU32>,
+     ) -> Result<()> {
+         match self {
+             #[cfg(backend)]
+@@ -273,6 +278,7 @@
+                     resolve_account(printer, config_paths, account_name)?;
+                 let (mut account, mut client) =
+                     EmailClient::new(config, &name, account_config, backend)?;
++                client.set_expected_uid_validity(expected_uid_validity)?;
+                 cmd.execute(printer, &mut account, &mut client)
+             }
+             #[cfg(backend)]
+@@ -281,6 +287,7 @@
+                     resolve_account(printer, config_paths, account_name)?;
+                 let (mut account, mut client) =
+                     EmailClient::new(config, &name, account_config, backend)?;
++                client.set_expected_uid_validity(expected_uid_validity)?;
+                 cmd.execute(printer, &mut account, &mut client)
+             }
+             #[cfg(backend)]
+@@ -289,6 +296,7 @@
+                     resolve_account(printer, config_paths, account_name)?;
+                 let (mut account, mut client) =
+                     EmailClient::new(config, &name, account_config, backend)?;
++                client.set_expected_uid_validity(expected_uid_validity)?;
+                 cmd.execute(printer, &mut account, &mut client)
+             }
+             #[cfg(any(backend, feature = "smtp"))]
+@@ -297,6 +305,7 @@
+                     resolve_account(printer, config_paths, account_name)?;
+                 let (mut account, mut client) =
+                     EmailClient::new(config, &name, account_config, backend)?;
++                client.set_expected_uid_validity(expected_uid_validity)?;
+                 cmd.execute(printer, &mut account, &mut client)
+             }
+             #[cfg(backend)]
+@@ -305,6 +314,7 @@
+                     resolve_account(printer, config_paths, account_name)?;
+                 let (mut account, mut client) =
+                     EmailClient::new(config, &name, account_config, backend)?;
++                client.set_expected_uid_validity(expected_uid_validity)?;
+                 cmd.execute(printer, &mut account, &mut client)
+             }
+ 
+@@ -313,6 +323,7 @@
+                 let (config, name, account_config) =
+                     resolve_account(printer, config_paths, account_name)?;
+                 let (mut account, mut client) = build_imap_client(config, name, account_config)?;
++                client.set_expected_uid_validity(expected_uid_validity);
+                 cmd.execute(printer, &mut account, &mut client)
+             }
+             #[cfg(feature = "jmap")]
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -125,6 +125,14 @@
+     let cli = Cli::parse();
+     let mut printer = StdoutPrinter::new(&cli.json);
+     let result = execute(cli, &mut printer);
++    #[cfg(feature = "imap")]
++    if result
++        .as_ref()
++        .is_err_and(|err| err.is::<imap::client::UidValidityMismatch>())
++    {
++        let _ = printer.out(ErrorReport::from(result.unwrap_err()));
++        std::process::exit(3);
++    }
+     ErrorReport::eval(&mut printer, result);
+ }
+ 
+@@ -133,12 +141,13 @@
+     let config = cli.config.paths.as_ref();
+     let account = cli.account.name.as_deref();
+     let backend = cli.backend;
++    let expected_uid_validity = cli.expected_uid_validity;
+ 
+     let Some(cmd) = cli.cmd else {
+         return meet_bare_invocation(printer, config, account.is_some());
+     };
+ 
+-    cmd.execute(printer, config, account, backend)
++    cmd.execute(printer, config, account, backend, expected_uid_validity)
+ }
+ 
+ /// Meets a bare `himalaya`, which is where a newcomer lands.
+--- a/src/shared/client.rs
++++ b/src/shared/client.rs
+@@ -14,6 +14,7 @@
+ 
+ #[cfg(feature = "smtp")]
+ use std::mem;
++use std::num::NonZeroU32;
+ 
+ use anyhow::{Result, anyhow, bail};
+ 
+@@ -92,6 +93,20 @@
+ }
+ 
+ impl EmailClient {
++    pub fn set_expected_uid_validity(&mut self, expected: Option<NonZeroU32>) -> Result<()> {
++        let Some(expected) = expected else {
++            return Ok(());
++        };
++        match &mut self.storage {
++            #[cfg(feature = "imap")]
++            Some(BackendClient::Imap(client)) => {
++                client.set_expected_uid_validity(Some(expected));
++                Ok(())
++            }
++            _ => bail!("UIDVALIDITY guard requires an IMAP backend"),
++        }
++    }
++
+     /// Opens the connections of the active account, bailing when nothing
+     /// usable is configured.
+     pub fn new(
+--- a/src/imap/client.rs
++++ b/src/imap/client.rs
+@@ -7,14 +7,19 @@
+ //! wrapper down, the merged [`Account`] riding along as a sibling
+ //! argument.
+ 
+-use std::ops::{Deref, DerefMut};
++use std::{
++    fmt,
++    num::NonZeroU32,
++    ops::{Deref, DerefMut},
++};
+ 
+ use anyhow::{Result, anyhow};
+ use io_imap::{
+     client::{ImapClientStd as Inner, ImapClientStdConnectOptions, default_port},
+     has_imap_capability,
++    rfc3501::select::{ImapMailboxSelectData, ImapMailboxSelectOptions},
+     session::ImapSessionOpenOptions,
+-    types::response::Capability,
++    types::{mailbox::Mailbox, response::Capability},
+ };
+ use io_sasl::mechanism::Sasl;
+ use pimalaya_config::secret::SecretResolver;
+@@ -29,6 +34,7 @@
+ /// A live IMAP session, its capabilities and the sort fallback policy.
+ pub struct ImapClient {
+     inner: Inner,
++    expected_uid_validity: Option<NonZeroU32>,
+     capabilities: Vec<Capability<'static>>,
+     sort_fallback: Option<bool>,
+ }
+@@ -70,9 +76,26 @@
+         let (inner, capabilities) = Inner::connect(&server, opts)?;
+         Ok(Self {
+             inner,
++            expected_uid_validity: None,
+             capabilities,
+             sort_fallback,
+         })
++    }
++
++    pub fn set_expected_uid_validity(&mut self, expected: Option<NonZeroU32>) {
++        self.expected_uid_validity = expected;
++    }
++
++    pub fn select(
++        &mut self,
++        mailbox: Mailbox<'static>,
++        opts: ImapMailboxSelectOptions,
++    ) -> Result<ImapMailboxSelectData> {
++        let data = io_imap::client::ImapClient::select(&mut self.inner, mailbox, opts)?;
++        if self.expected_uid_validity.is_some() && self.expected_uid_validity != data.uid_validity {
++            return Err(UidValidityMismatch.into());
++        }
++        Ok(data)
+     }
+ 
+     /// Whether to sort client-side with SEARCH and FETCH rather than
+@@ -99,6 +122,17 @@
+         has_imap_capability!(self.capabilities, Move)
+     }
+ }
++
++#[derive(Debug)]
++pub struct UidValidityMismatch;
++
++impl fmt::Display for UidValidityMismatch {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.write_str("IMAP UIDVALIDITY did not match the expected value")
++    }
++}
++
++impl std::error::Error for UidValidityMismatch {}
+ 
+ /// Parses an IMAP server string into a URL.
+ ///
